@@ -71,10 +71,9 @@ module spi_peripheral (
             default: begin
             end
           endcase
-
-          count             <= 4'h0;
-          transaction_ready <= 1'b0;
         end
+        clk_counter       <= 4'h0;
+        transaction_ready <= 1'b0;
       end else if (!ncs_sync) begin
         if (sclk_posedge && !transaction_ready) begin
           data_in <= {data_in[14:0], copi_sync};
@@ -86,7 +85,7 @@ module spi_peripheral (
           end
         end
       end else begin
-        count             <= 4'h0;
+        clk_counter       <= 4'h0;
         transaction_ready <= 1'b0;
       end
     end
