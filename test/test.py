@@ -183,9 +183,9 @@ async def test_pwm_freq(dut):
     # wait for signal to settle
     await ClockCycles(dut.clk, 1000)
 
-    await RisingEdge(dut.uo_out[0])
+    await RisingEdge(dut.uo_out_0)
     posedge_1 = get_sim_time(units="ns")
-    await RisingEdge(dut.uo_out[0])
+    await RisingEdge(dut.uo_out_0)
     posedge_2 = get_sim_time(units="ns")
 
     period = posedge_2 - posedge_1
@@ -194,8 +194,78 @@ async def test_pwm_freq(dut):
 
     dut._log.info("PWM Frequency test completed successfully")
 
+# helper function so I dont have to repeat for loop multiple times
+async def is_constant_signal(dut, val):
+    # 10 MHz / 3 KHz = 3333 clock periods within pwm period.
+    # just ensure signal stays same at each clock pulse throughout pwm period
+    for i in range(3333):
+        await ClockCycles(dut.clk, 1)
+        curr_val = int(dut.uo_out.value) & 0x01
+        if (curr_val != val):
+            return False
+    return True
 
 @cocotb.test()
 async def test_pwm_duty(dut):
     # Write your test here
+
+    # Set the clock period to 100 ns (10 MHz)
+    clock = Clock(dut.clk, 100, units="ns")
+    cocotb.start_soon(clock.start())
+
+    # Reset
+    dut._log.info("Reset")
+    dut.ena.value = 1
+    ncs = 1
+    bit = 0
+    sclk = 0
+    dut.ui_in.value = ui_in_logicarray(ncs, bit, sclk)
+    dut.rst_n.value = 0
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 5)
+
+    # enable uo_out[0], and enable PWM on uo_out[0]
+    await send_spi_transaction(dut, 1, 0x00, 0x01)
+    await send_spi_transaction(dut, 1, 0x02, 0x01)
+
+    # set duty cycle to 0%
+    dut._log.info("Test PWM = 0%")
+    await send_spi_transaction(dut, 1, 0x04, 0x00)
+    await ClockCycles(dut.clk, 1000)
+
+    result = await is_constant_signal(dut, 0)
+    assert result, "PWM = 0% result: signal did not stay low for entire pwm period"
+
+
+    # set duty cycle to 50%
+    dut._log.info("Test PWM = 50%")
+    await send_spi_transaction(dut, 1, 0x04, 0x80)
+    await ClockCycles(dut.clk, 1000)
+
+    # get period
+    await RisingEdge(dut.uo_out_0)
+    posedge_1 = get_sim_time(units="ns")
+    await RisingEdge(dut.uo_out_0)
+    posedge_2 = get_sim_time(units="ns")
+    period = posedge_2 - posedge_1
+
+    # calculate duty cycle
+    await RisingEdge(dut.uo_out_0)
+    posedge = get_sim_time(units="ns")
+    await FallingEdge(dut.uo_out_0)
+    negedge = get_sim_time(units="ns")
+    duty_cycle = ((negedge - posedge) / period) * 100
+
+    assert (49 <= duty_cycle and duty_cycle <= 51), f"PWM = 50% result: received {duty_cycle}"
+
+    
+    # set duty cycle to 100%
+    dut._log.info("Test PWM = 100%")
+    await send_spi_transaction(dut, 1, 0x04, 0xFF)
+    await ClockCycles(dut.clk, 1000)
+
+    result = await is_constant_signal(dut, 1)
+    assert result, "PWM = 100% result: signal did not stay high for entire pwm period"
+
     dut._log.info("PWM Duty Cycle test completed successfully")
